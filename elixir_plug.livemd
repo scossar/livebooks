@@ -1,0 +1,140 @@
+# Elixir Plug
+
+```elixir
+Mix.install([
+  {:bandit, "~> 1.0"},
+  {:kino, "~> 0.19"}
+])
+```
+
+## Plug
+
+Plug [https://github.com/elixir-plug/plug](https://github.com/elixir-plug/plug)
+
+1. A specification for composing web applications with functions
+2. Connection adapters for different web servers in the Erlang VM
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Phoenix Plug documentation
+
+From the [Phoenix Plug documentation](https://phoenix.hexdocs.pm/plug.html):
+
+Plug lives at the heart of Phoenix's HTTP layer, and Phoenix puts Plug front and center. We interact with plugs at every step of the request life-cycle, and the core Phoenix components like endpoints, routers, and controllers are all just plugs internally...
+
+Plug is a **specification for composable modules** in between web applications (?). It is also an **abstraction layer for connection adapters of different web servers**. The basic idea of Plug is to **unify the concept of a "connection"** that we operate on. This differs from other HTTP middleware layers such as Rack, where the request and response are separated in the middleware stack.
+
+The plug specification comes in two flavors: *function plugs* and *module plugs*: [https://plug.hexdocs.pm/Plug.html](https://plug.hexdocs.pm/Plug.html).
+
+Note: "in between web applications" in the description above is a little awkward. Think of Plug as a common contract for HTTP-handling components that can be assembled into an application.
+
+---
+
+#### Function plugs
+
+A function plug is by definition any function that receives a connection and a set of options and returns a connection. Function plugins must have the following type signature:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+(Plug.Conn.t, Plug.opts) :: Plug.Conn.t
+```
+
+Each function receives a connection, does something with it, and returns the resulting connection.
+
+#### Module plugs
+
+**A specification for composable modules** means that plugs follow a common contract, so that they can be chained together. A module plug implements `init/1` and `call/2`. `call/2` receives a connection and returns a connection.
+
+#### An abstraction layer for connection adapters
+
+**An abstraction layer for connection adapters** means that Plug code doesn't need to know how a particular server handles HTTP. For example, the `MyPlug` below would work with either the Bandit or Cowboy webservers.
+
+#### Unify the concept of a connection
+
+**Unify the concept of a connection** means that the connection contains both:
+
+* **Request information**: method, path, request headers, parameters
+* **Response information**: status, response headers, response body, whether the response has been sent
+
+#### What is the "connection"?
+
+Think of `conn` as **the record of handling one request**. Initially it contains request details and an unfinished response:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# Simplified illustration
+%Plug.Conn{
+  method: "GET",
+  request_path: "/assets/app.css",
+  status: nil,
+  state: :unset
+}
+```
+
+As plugs process `conn`, they can read the request, attach information, and prepare or send a response.
+
+<!-- livebook:{"break_markdown":true} -->
+
+### HTTP request/response plug
+
+A minimal HTTP request/response plug module. `MyPlug` is a modular plug. Its `call` function uses function plugs: `put_resp_content_type` and `send_resp` both take a connection as their first argument and a set of options as their second argument.
+
+```elixir
+defmodule MyPlug do
+  import Plug.Conn
+
+  def init(options) do
+    options
+  end
+
+  def call(conn, _opts) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(200, "Hello world")
+  end
+end
+```
+
+Note that I'm ignoring the details of what `Kino` is doing here. It's needed to run the web server in a Livebook. It's replacing the role of `Supervisor.start_link([webserver])` that's used in the Plug README example. See [https://kino.hexdocs.pm/Kino.html](https://kino.hexdocs.pm/Kino.html).
+
+```elixir
+require Logger
+require Kino
+webserver = {Bandit, plug: MyPlug, ip: :loopback, port: 4010}
+{:ok, server_pid} = Kino.start_child(webserver)
+Logger.info("Plug now running on localhost:4010")
+Process.sleep(:infinity)
+```
+
+### Plugs in the context of a Phoenix application
+
+Looking at a Phoenix app's `endpoint.ex` file:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+defmodule HelloWeb.Endpoint do
+  use Phoenix.Endpoint, otp_app: :hello
+
+  # ...
+  
+  plug Plug.Static,
+    at: "/",
+    from: :hello,
+    gzip: not code_reloading?,
+    only: HelloWeb.static_paths(),
+    raise_on_missing_only: code_reloading?
+  # ...
+```
+
+`plug Plug.Static...` means "Include `Plug.Static` in the endpoint's request pipeline, with these options." The call is doing something like:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+conn = Plug.Static.call(conn, initialized_options)
+```
+
+For a request to `/assets/app.css`, `Plug.Static` checks whether it can serve the requested file from the applications static directory (`only: HelloWeb.static_paths()`). If the request doesn't match a static file, the connection is passed onward. The `raise_on_missing_only` option can make certain misses raise exceptions rather than pass on the connection.

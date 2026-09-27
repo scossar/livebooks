@@ -1,0 +1,241 @@
+# Elixir Processes
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"}
+])
+```
+
+## Processes
+
+In Elixir, all code runs inside a process. Processes are isolated from each other, run concurrently to each other, and communicate via message passing. ([Processes](https://elixir.hexdocs.pm/processes.html)).
+
+Elixir's processes should not be confused with operating system processes. Elixir processes are lightweight in terms of memory and CPU. It's not uncommon to have 10s or 100s of thousands of processes running simultaneously.
+
+## Spawning processes
+
+The basic mechanism for spawning processes:
+
+```elixir
+spawn(fn -> 3 * 4 end)
+```
+
+Retrieve the PID of the current process with `self()`:
+
+```elixir
+outer_self = inspect(self())
+
+spawn(fn ->
+  IO.puts("Spawned self: #{inspect(self())}, caller self: #{outer_self}")
+end)
+```
+
+Spawned processes exit after they have executed their given function.
+
+```elixir
+pid = spawn(fn -> 1 + 3 end)
+```
+
+```elixir
+Process.alive?(pid)  # should be `false`
+```
+
+#### Sending and receiving messages
+
+Send messages to a process with `send/2`; receive messages with `receive/1`.
+
+`receive/1` receives messages in the current process's mailbox. The `receive/1` block goes through the current process's mailbox searching for a message that matches any of the given patterns. `receive/1` supports guards and clauses - it works the same way as `case/2`.
+
+```elixir
+send(self(), {:hello, "world"})
+```
+
+```elixir
+receive do
+  {:hello, msg} -> IO.puts(":hello msg: #{msg}")
+  {:world, msg} -> IO.puts(":world msg won't match: #{msg}")
+end
+```
+
+If there is no message in the mailbox matching any of the patterns, the current process will wait until a matching message arrives. A timeout can also be specified.
+
+```elixir
+receive do
+  {:foo, msg} -> IO.puts("Is there a message matching :foo? #{msg}")
+after
+  1_000 -> IO.puts("Waited one second")
+end
+```
+
+#### Sending messages between processes
+
+```elixir
+parent = self()
+spawn(fn -> send(parent, {:newer_hello, self()}) end)
+```
+
+```elixir
+receive do
+  {:newer_hello, pid} -> IO.puts("Got hello from #{inspect pid}")
+end
+```
+
+## Links
+
+Processes are usually spawned as *linked processes* (also see the Agents section below). When an unlinked spawned process crashes, the parent process keeps running.
+
+```elixir
+# The parent process has the same PID, before and after the child process raises an exception:
+IO.puts(inspect self())
+spawn(fn -> raise "oops" end)
+IO.puts(inspect self())
+```
+
+The way that `spawn_link` works is easier to demonstrate in IEx - after the child process raises an exception, the parent process receives an `EXIT` signal, triggered by the child process: "process #PID<0.142.0> raised an exception..."
+
+```text
+iex(7)> self()
+#PID<0.140.0>
+iex(8)> spawn_link(fn -> raise "oops" end)
+#PID<0.142.0>
+** (EXIT from #PID<0.140.0>) shell process exited with reason: {%RuntimeError{message: "oops"}, []}
+
+23:19:24.140 [error] Process #PID<0.142.0> raised an exception
+** (RuntimeError) oops
+
+Interactive Elixir (1.20.4) - press Ctrl+C to exit (type h() ENTER for help)
+iex(8)> self()
+#PID<0.143.0>
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+Links allow processes to establish a relationship in case of failure. Processes are often linked to **supervisors** which detect when a process dies, and start a new process in its place. (It *seems* that IEx is a supervisor.)
+
+"In Elixir wer are actually fine with letting processes fail because we expect supervisors to properly restart out systems." I.e., "failing fast".
+
+## Tasks
+
+Tasks build on top of the spawn functions to provide better error reports and introspection.
+
+Instead of `spawn/1` and `spawn_link/1`, use `Task.start/1` and `Task.start_link/1`.
+
+```elixir
+# Livebook doesn't provide a great demonstration of th error reporting. See the next cell.
+Task.start(fn -> raise "oops" end)
+```
+
+```text
+iex(9)> Task.start(fn -> raise "oops" end)
+{:ok, #PID<0.144.0>}
+
+23:33:42.370 [error] Task #PID<0.144.0> started from #PID<0.143.0> terminating
+** (RuntimeError) oops
+    (elixir 1.20.4) src/elixir.erl:382: :elixir.eval_external_handler/3
+Function: #Function<43.130099583/0 in :erl_eval.expr/6>
+    Args: []
+
+```
+
+## State
+
+Processes are the most common way of storing state. E.g., an application's configuration, or parsing a file and keeping it in memory, or...
+
+Processes can be setup that loop infinitely, maintain state, and send and receive messages.
+
+```elixir
+defmodule KV do
+  def start_link do
+    Task.start_link(fn -> loop(%{}) end)
+  end
+
+  defp loop(map) do
+    receive do
+      {:get, key, caller} ->
+        # I'm sending {key, value} to the caller, so that
+        # a receive loop can be used - the example in the docs
+        # uses flush().
+        send(caller, {key, Map.get(map, key)})
+        loop(map)
+      {:put, key, value} ->
+        loop(Map.put(map, key, value))
+    end
+  end
+end
+```
+
+```elixir
+{:ok, pid} = KV.start_link()
+```
+
+```elixir
+key = :foo
+send(pid, {:put, key, "bar"})
+```
+
+```elixir
+send(pid, {:get, key, self()})
+```
+
+```elixir
+receive do
+  {key, msg} -> IO.puts("#{key} => #{msg}")
+after
+  1_000 -> IO.puts("No message received")
+end
+```
+
+Register the `pid`, giving it a name. Everyone who knows the name can send it messages:
+
+```elixir
+Process.register(pid, :kv)
+```
+
+```elixir
+another_key = :bar
+send(:kv, {:put, another_key, 23})
+```
+
+```elixir
+send(:kv, {:get, another_key, self()})
+```
+
+```elixir
+receive do
+  {another_key, msg} -> IO.puts("#{another_key} => #{msg}")
+after
+  1_000 -> IO.puts("No message in the mailbox")
+end
+```
+
+## Agents
+
+Agents are wrappers around state. They make it easier to perform the equivalent of the operations that the KV module is doing:
+
+```elixir
+{:ok, pid} = Agent.start_link(fn -> %{} end)
+Agent.update(pid, fn map -> Map.put(map, :foo, :bar) end)
+```
+
+```elixir
+Agent.get(pid, fn map -> Map.get(map, :foo) end)
+```
+
+### The difference between start and start_link
+
+The difference between `Agent.start/1` and `Agent.start_link` is whether the agent is linked to the process that starts it:
+
+* `Agent.start/1` starts an unlinked agent. If either the agent or the process that started it crash, the crash doesn't automatically terminate the other process.
+* `Agent.start_link/1` starts a linked agent. By default, an abnormal exit in either process also terminates the other.
+
+Both function initialize the agents state using the function supplied as the argument. Both return `{:ok, pid}` on success.
+
+`start_link` makes more sense when starting an agent under a **supervisor**. The link lets the supervisor detect the agent's termination and apply its restart policy.
+
+Also see the section above on `spawn` versus `spawn_link`.
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

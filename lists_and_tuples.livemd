@@ -1,0 +1,97 @@
+# Lists and tuples
+
+## Lists
+
+### Size or length?
+
+For counting elements in a data structure, Elixir uses `size` if the operation is in constant time (if the value is pre-calculated) or `length` is the operation is linear (of calculating length gets slower as the input grows).
+
+```elixir
+list = [1, 2, true, 3]
+head = hd(list)
+tail = tl(list)
+reconstituted = [head] ++ tail
+```
+
+#### The mysterious `|` operator:
+
+```elixir
+[head | tail] == reconstituted
+```
+
+```elixir
+[1, 2 | [4]]
+```
+
+#### Subtracting items from lists
+
+```elixir
+["foo", "bar", "baz"] -- ["bar"]
+```
+
+```elixir
+["foo", "bar", "foo", "bar"] -- ["bar"]
+```
+
+#### Joining lists strings
+
+```elixir
+foo_foo = ["foo", "bar", "foo", "bar"] -- ["bar", "bar"]
+Enum.join(foo_foo, "")
+```
+
+#### Joining strings
+
+```elixir
+"foo" <> "bar"
+```
+
+#### Splitting a string into a list
+
+```elixir
+String.split("foo bar")
+```
+
+```elixir
+["foo" | String.split("bar baz")] -- ["bar"]
+```
+
+#### The | operator
+
+```elixir
+# The `|` operator is typically used between brackets to mark the head and tail of a list
+[1 | [2, 3, 4]]
+```
+
+```elixir
+head_tail_ex = [[4, 3, 2] | [1]]
+```
+
+```elixir
+# Flatten a list
+List.flatten(head_tail_ex)
+```
+
+### Tuples
+
+```elixir
+tuple = {"this", "that"}
+```
+
+```elixir
+# get a tuple's size
+tuple_size(tuple)
+```
+
+```elixir
+new_tuple = put_elem(tuple, 1, ["is", "a", "test"])
+```
+
+```elixir
+# Get element at position
+elem(new_tuple, 1)
+```
+
+```elixir
+["this" | elem(new_tuple, 1)]
+```

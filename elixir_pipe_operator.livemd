@@ -1,0 +1,19 @@
+# Elixir pipe operator
+
+## Transform nested code into a pipeline
+
+The Elixir pipe operator (`|>`) is a core language feature that takes the result of the expression on its left-hand side and automatically injects it as the first argument into the function call on its right-hand side.
+
+```elixir
+# Difficult to read; evaluates from the inside out.
+String.replace(String.downcase(String.trim("  Hello World  ")), "hello", "hi")
+```
+
+Versus:
+
+```elixir
+"  Hello World  "
+|> String.downcase()
+|> String.trim()
+|> String.replace("hello", "hi")
+```

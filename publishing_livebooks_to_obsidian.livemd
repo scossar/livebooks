@@ -1,0 +1,335 @@
+# Publishing Livebooks to Obsidian
+
+## The problem
+
+I want to get notes created in a Livebook into my Obsidian vault. I could just click the "Export" link, then copy and paste them into Obsidian, but publishing a Livebook from within a Livebook is an interesting problem.
+
+<!-- livebook:{"break_markdown":true} -->
+
+### The Livebook __ENV__ variable
+
+Let's inspect the variable:
+
+```elixir
+inspect(__ENV__)
+# Difficult to read:
+# "#Macro.Env<aliases: [], context: nil, context_modules: [], file:...
+```
+
+In Elixir, `__ENV__` is a special macro that returns a `%Macro.ENV{}` struct that contains the compile-time environment information for the current execution context.
+
+In a Livebook context, `__ENV__` is similar to the standard Elixir `__ENV__`, but:
+
+* it has **dynamic evaluation**: in a pre-compiled Mix project, `__ENV__` is fixed ad compilation. Livebook compiles cell-by-cell. `__ENV__` contains the environment state at the time a specific cell is evaluated.
+
+```elixir
+# Make the contents easier to read:
+inspect(__ENV__)
+  |> String.replace(", ", "\n")
+  |> IO.puts()
+```
+
+### Get the Livebook's file path
+
+Get the Livebook's file path. Then get the file's content. Extract the top level heading from the content and use it to generate the Obsidian note title.
+
+```elixir
+vault_path = "/home/scossar/obsidian_vault/"
+
+livebook_path =
+  __ENV__.file
+|> String.split("#cell", parts: 2)
+|> hd()
+
+[header, content] =
+  livebook_path
+  |> File.read!()
+  |> String.split("\n\n", parts: 2)
+
+[_level, title] = String.split(header, " ", parts: 2)
+```
+
+### Publish to Obsidian!
+
+First test. Using the same as the above, but with pattern matching and assertions to make sure my assumptions about the content's structure are true.
+
+```elixir
+vault_path = "/home/scossar/obsidian_vault/"
+
+[livebook_path, cell_id] =
+  String.split(__ENV__.file, "#cell:", parts: 2)
+
+true = cell_id != ""
+true = String.ends_with?(livebook_path, ".livemd")
+
+# `"# " <> title` checks the heading prefix and extracts the title
+["# " <> title, content] =
+  livebook_path
+  |> File.read!()
+  |> String.split("\n\n", parts: 2)
+
+title = String.trim(title)
+true = String.trim(title) != ""
+false = String.contains?(title, ["/", ":", "\\", "\n", "\r", <<0>>])
+
+true = String.trim(content) != ""
+
+output_path = Path.join(vault_path, title <> ".md")
+File.write!(output_path, content)
+```
+
+### Create an Obsidian module
+
+Create an `Obsidian` module for publishing Livebooks to Obsidian.
+
+Remove Livebook HTML comments from the markdown.
+
+If the `output_path` already exists in the Obsidian vault, require the `force: true` option to be set.
+
+Open the note in the Obsidian vault.
+
+```elixir
+defmodule Obsidian do
+  def publish(vault_path, opts \\ []) do
+    force? = Keyword.get(opts, :force, false)
+
+    [livebook_path, _cell_id] =
+      String.split(__ENV__.file, "#cell:", parts: 2)
+
+    true = String.ends_with?(livebook_path, ".livemd")
+
+    # `"# " <> title` checks the heading prefix and extracts the title
+    ["# " <> title, content] =
+      livebook_path
+      |> File.read!()
+      |> String.split("\n\n", parts: 2)
+
+    title = String.trim(title)
+    true = String.trim(title) != ""
+    false = String.contains?(title, ["/", ":", "\\", "\n", "\r", <<0>>])
+
+    true = String.trim(content) != ""
+
+    content = clean_content(content)
+
+    output_path = Path.join(vault_path, title <> ".md")
+
+    if note_exists?(output_path) and not force? do
+      IO.puts("`#{output_path}` exists.\nPublish with `force: true` to overwrite.")
+      {:error, :already_exists}
+    else
+      File.write!(output_path, content)
+
+      case open_note("obsidian_vault", Path.relative_to(output_path, vault_path)) do
+        :ok ->
+          IO.puts("Published and opened.")
+
+        {:error, {_status, output}} ->
+          IO.puts("Published, but couldn't open the note:\n#{output}")
+      end
+    end
+  end
+
+  defp note_exists?(path) do
+    case File.stat(path) do
+      {:ok, _stat} ->
+        true
+
+      {:error, :enoent} ->
+        false
+
+      {:error, reason} ->
+        raise File.Error,
+          reason: reason,
+          action: "inspect note",
+          path: path
+    end
+  end
+
+  defp clean_content(content) do
+    reg =
+      ~r/\n<!--[ \t]*livebook:\s*\{\s*"(?:force_markdown|break_markdown)"\s*:\s*true\s*\}\s*-->\n/
+    String.replace(content, reg, "")
+  end
+
+  defp open_note(vault_name, relative_path) do
+    query =
+      URI.encode_query(
+        %{"vault" => vault_name, "file" => relative_path, "paneType" => "tab"},
+        :rfc3986
+      )
+
+    case System.cmd("xdg-open", ["obsidian://open?" <> query], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, {status, output}}
+    end
+  end
+end
+```
+
+```elixir
+vault_path = "/home/scossar/obsidian_vault"
+Obsidian.publish(vault_path, force: true)  # using the `force` option to update the note on Obsidian
+```
+
+### Put the code into a Mix project
+
+Put the code into a Mix project so that it can be used as a Livebook dependency.
+
+The project is here: [https://github.com/scossar/obsidian_livebook](https://github.com/scossar/obsidian_livebook)
+
+Add the following to a Livebook's setup cell to use it as a dependency:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/absolute/path/to/obsidian_livebook"}
+])
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+### The Livebook's __ENV__ isn't the Mix project's __ENV__
+
+The original implementation of `ObsidianLivebook` included `__ENV__` in the module. That was making the assumption that `__ENV__` would always be the Livebook's env. I was ignoring what I'd written:
+
+> In Elixir, `__ENV__` is a special macro that returns a `%Macro.ENV{}` struct that contains the compile-time environment information for the current execution context.
+> 
+> In a Livebook context, `__ENV__` is similar to the standard Elixir `__ENV__`, but:
+> 
+> * it has **dynamic evaluation**: in a pre-compiled Mix project, `__ENV__` is fixed ad compilation. Livebook compiles cell-by-cell. `__ENV__` contains the environment state at the time a specific cell is evaluated.
+
+The fix is to pass the source file (`some_livebook.livemd`) as an argument to `ObsidianLivebook.publish`. From withing a Livebook, this can be done with:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+# `publish` takes care of stripping `"#cell:"` from the file name.
+ObsidianLivebook.publish("/path/to/vault", __ENV__.file)
+```
+
+From IEx or a script:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+ObsidianLivebook.publish("/path/to/vault", "/path/to/saved/livebook.livemd")
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+### The Mix project ObsidianLivebook
+
+```elixir
+defmodule ObsidianLivebook do
+  @moduledoc """
+  Publish a Livebook to an Obsidian vault.
+  """
+
+  @doc ~S"""
+  Publish the current Livebook to an Obsidian vault.
+
+  ## Examples
+
+      vault_path = "/home/scossar/obsidian_vault"
+
+      # from within a Livebook
+      Obsidian.publish(vault_path, __ENV__.file)
+      Published and opened.
+      :ok
+
+      Obsidian.publish(vault_path, __ENV__.file)
+      `/home/scossar/obsidian_vault/Publishing Livebooks to Obsidian.md` exists.
+      Publish with `force: true` to overwrite.
+      {:error, :already_exists}
+
+      Obsidian.publish(vault_path, __ENV__.file, force: true)
+      Published and opened.
+      :ok
+
+      # From IEx
+      iex> ObsidianLivebook.publish("/path/to/obsidian_vault", "/path/to/livebook_publish_test_two.livemd", force: true)
+      Published and opened.
+      :ok
+  """
+  def publish(vault_path, source_file, opts \\ []) do
+    force? = Keyword.get(opts, :force, false)
+
+    livebook_path =
+      source_file
+      |> String.split("#cell:", parts: 2)
+      |> hd()
+
+    true = String.ends_with?(livebook_path, ".livemd")
+
+    # `"# " <> title` checks the heading prefix and extracts the title
+    ["# " <> title, content] =
+      livebook_path
+      |> File.read!()
+      |> String.split("\n\n", parts: 2)
+
+    title = String.trim(title)
+    true = String.trim(title) != ""
+    false = String.contains?(title, ["/", ":", "\\", "\n", "\r", <<0>>])
+
+    true = String.trim(content) != ""
+
+    content = clean_content(content)
+
+    output_path = Path.join(vault_path, title <> ".md")
+
+    if note_exists?(output_path) and not force? do
+      IO.puts("`#{output_path}` exists.\nPublish with `force: true` to overwrite.")
+      {:error, :already_exists}
+    else
+      File.write!(output_path, content)
+
+      case open_note("obsidian_vault", Path.relative_to(output_path, vault_path)) do
+        :ok ->
+          IO.puts("Published and opened.")
+
+        {:error, {_status, output}} ->
+          IO.puts("Published, but couldn't open the note:\n#{output}")
+      end
+    end
+  end
+
+  defp note_exists?(path) do
+    case File.stat(path) do
+      {:ok, _stat} ->
+        true
+
+      {:error, :enoent} ->
+        false
+
+      {:error, reason} ->
+        raise File.Error,
+          reason: reason,
+          action: "inspect note",
+          path: path
+    end
+  end
+
+  defp clean_content(content) do
+    reg =
+      ~r/\n<!--[ \t]*livebook:\s*\{\s*"(?:force_markdown|break_markdown)"\s*:\s*true\s*\}\s*-->\n/
+
+    String.replace(content, reg, "")
+  end
+
+  defp open_note(vault_name, relative_path) do
+    query =
+      URI.encode_query(
+        %{"vault" => vault_name, "file" => relative_path, "paneType" => "tab"},
+        :rfc3986
+      )
+
+    case System.cmd("xdg-open", ["obsidian://open?" <> query], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, {status, output}}
+    end
+  end
+end
+
+```

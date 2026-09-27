@@ -1,0 +1,162 @@
+# GenServer behavior
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"}
+])
+```
+
+## GenServer
+
+From the [Elixir docs](https://elixir.hexdocs.pm/GenServer.html):
+
+GenServer is a behavior module for implementing the server of a client-server relation.
+
+A GenServer is a process like any other Elixir process. The advantages of using a generic server process (GenServer):
+
+* it has a standard set of interface functions
+* it has functionality for tracing and error reporting
+* it fits into a supervision tree
+
+<!-- livebook:{"break_markdown":true} -->
+
+### A GenServer that works like a stack
+
+The example below implements a GenServer that works like a stack. It's initialized with a string - a comma separated list of elements. Elements can then be popped from and pushed onto the stack. The callbacks `init`, `handle_call`, and `handle_cast` are invoked by GenServer, in response to `GenServer.start_link`, `GenServer.call`, and `GenServer.cast`.
+
+For this implementation, I'm thinking of it in terms of their being two processes: the code evaluation process, e.g. Livebook or IEx, and the Stack module's GenServer process.
+
+```elixir
+defmodule Stack do
+  use GenServer
+
+  # Callbacks
+
+  @impl true
+  def init(elements) do
+    initial_state = String.split(elements, ",", trim: true)
+    IO.puts("In the init/1 callback")
+    {:ok, initial_state}
+  end
+
+  @impl true
+  def handle_call(:pop, _from, state) do
+    [to_caller | new_state] = state
+    IO.puts("In the call/3 callback")
+    {:reply, to_caller, new_state}
+  end
+
+  @impl true
+  def handle_cast({:push, element}, state) do
+    new_state = [element | state]
+    IO.puts("In the cast/2 callback")
+    {:noreply, new_state}
+  end
+end
+```
+
+The Livebook process evaluates `GenServer.start_link(Stack, "hello,world")`. The `Stack` argument tells GenServer to use the `Stack` module's `init/1` callback function, passing `"hello,world"` as the argument.
+
+`init/1` returns `{:ok, ["hello", "world"]}` to the GenServer interals (I'm ignoring the details). `GenServer.start_link/2` returns `{:ok, pid}` to the calling code.
+
+```elixir
+{:ok, pid} = GenServer.start_link(Stack, "hello,world")
+```
+
+GenServers can be debugged with the [`:sys` module](https://elixir.hexdocs.pm/1.19.0/GenServer.html#module-debugging-with-the-sys-module):
+
+```elixir
+:sys.get_state(pid)
+```
+
+`GenServer.call` gets the GenServer to invoke the module's `handle_call` callback. The `Stack` module's `handle_call` callback matches the `:pop` argument that's passed to `GenServer.call(pid, :pop)`. The GenServer machinery receives the response `{:reply, to_caller, new_state}` and returns the new state to the process that called `GenServer.call`
+
+```elixir
+GenServer.call(pid, :pop)
+```
+
+```elixir
+GenServer.cast(pid, {:push, "goodbye"})
+```
+
+```elixir
+GenServer.call(pid, :pop)
+```
+
+## Client server APIs
+
+Rather than having the client call GenServer directly, the `StackTwo` module supplyies function for the client to call: `start_link`, `push`, and `pop`. I'm not sure what this accomplishes yet. I *think* the significance is that the *client* process (e.g., IEx) executes the API functions and the *server* process executes the callbacks. (But it's not obvious to me if the API functions are in their own process. I'd guess that with the current code they're functioning as an interface with the GenServer process.)
+
+```elixir
+defmodule StackTwo do
+  use GenServer
+
+  # Client
+
+  def start_link(default) when is_binary(default) do
+    GenServer.start_link(__MODULE__, default)
+  end
+
+  def push(pid, element) do
+    GenServer.cast(pid, {:push, element})
+  end
+
+  def pop(pid) do
+    GenServer.call(pid, :pop)
+  end
+
+  # Server (callbacks)
+
+  @impl true
+  def init(elements) do
+    initial_state = String.split(elements, ",", trim: :trim)
+    {:ok, initial_state}
+  end
+
+  @impl true
+  def handle_call(:pop, _from, state) do
+    [to_caller | new_state] = state
+    {:reply, to_caller, new_state}
+  end
+
+  @impl true
+  def handle_cast({:push, element}, state) do
+    new_state = [element | state]
+    {:noreply, new_state}
+  end
+end
+```
+
+```elixir
+{:ok, pid} = StackTwo.start_link("this,is,a,test")
+```
+
+```elixir
+:sys.get_state(pid)
+```
+
+```elixir
+StackTwo.pop(pid)
+```
+
+## Supervisors
+
+A GenServer is most commonly started under a supervision tree ([How to supervise](https://elixir.hexdocs.pm/GenServer.html))
+
+```elixir
+children = [{StackTwo, "foo, bar, baz"}]
+{:ok, supervisor_pid} =
+  Supervisor.start_link(children, strategy: :one_for_all)
+```
+
+I'm going to stop the supervisor process - I've got no idea how to interact with it:
+
+```elixir
+Supervisor.stop(supervisor_pid)
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

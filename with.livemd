@@ -1,0 +1,64 @@
+# Elixir with
+
+## Section
+
+`with(args)`: Combine matching clauses
+
+Docs: [https://elixir.hexdocs.pm/Kernel.SpecialForms.html#with/1](https://elixir.hexdocs.pm/Kernel.SpecialForms.html#with/1)
+
+One of the ways to understand `with` is to show which code patterns it improves. Imagine you have a map where the fields `width` and `height` are optional and you want to compute its area as `{:ok, area} or return `:error`.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Implementing the function with `case`:
+
+```elixir
+defmodule Scratch do
+  def area(opts) do
+    case Map.fetch(opts, :width) do
+      {:ok, width} ->
+        case Map.fetch(opts, :height) do
+          {:ok, height} -> {:ok, width * height}
+          :error -> :error
+        end
+  
+      :error ->
+        :error
+    end
+  end
+end
+
+```
+
+```elixir
+opts = %{width: 17, height: 23}
+Scratch.area(opts)
+```
+
+```elixir
+opts = %{width: 17, h: 4}
+Scratch.area(opts)
+```
+
+Implementing the function with `with`:
+
+```elixir
+defmodule ScratchTwo do
+  def area(opts) do
+    with {:ok, width} <- Map.fetch(opts, :width),
+         {:ok, height} <- Map.fetch(opts, :height) do
+      {:ok, width * height}
+    end
+  end
+end
+```
+
+```elixir
+opts = %{width: 12, height: 23}
+ScratchTwo.area(opts)
+```
+
+```elixir
+opts = %{w: 12, h: 22}
+ScratchTwo.area(opts)
+```
