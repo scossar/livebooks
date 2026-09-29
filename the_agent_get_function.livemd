@@ -1,0 +1,31 @@
+# Agent get - an anonymous function that returns its argument unchanged
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"}
+])
+```
+
+## Agent.get
+
+`Agent.get/2` passes the Agent's current state to the supplied function and returns the function's result:
+
+```elixir
+{:ok, _} = Agent.start_link(fn -> 0 end, name: :foo)
+```
+
+```elixir
+Agent.get(:foo, fn state -> state end)
+```
+
+The anonymous function could also be written with the capture operator:
+
+```elixir
+Agent.get(:foo, & &1)
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

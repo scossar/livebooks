@@ -1,0 +1,49 @@
+# Piping into anonymous Elixir functions
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, github: "scossar/obsidian_livebook"}
+])
+```
+
+## Pipe into an anonymous Elixir function with `then/2`
+
+[/then/2](https://elixir.hexdocs.pm/Kernel.html#then/2) pipes the first argument, `value` into the second argument, a function `fun` and returns the result of calling `fun`.
+
+```elixir
+"hello"
+|> then(fn str -> str <> " world!" end)
+|> IO.puts()
+
+# Using capture syntax
+"hello"
+|> then(&(&1 <> " again!"))
+|> IO.puts()
+```
+
+## Pipe into an anonymous Elixir function with immediate invocation
+
+Because the pipe operator expects a function *call* on its right side, you can't pipe directly into an uninvoked anonymous function block, but you can wrap the function in parenthesis and invoke it with `.()`.
+
+I'm guessing a bit here, but I think this is the less idiomatic approach.
+
+```elixir
+"hello"
+|> (fn str -> str <> " from an invoked anonymous function" end).()
+|> IO.puts
+
+# Or:
+"hello"
+|> (&(&1 <> " from invoked anonymous function using capture syntax")).()
+|> IO.puts
+```
+
+## Why all this piping to IO.puts?
+
+It's fun, but mostly so that I can get output from multiple lines of code that are executed in a LiveBook cell. Maybe there's another way.
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

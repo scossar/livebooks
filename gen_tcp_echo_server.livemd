@@ -1,0 +1,211 @@
+# gen_tcp echo server
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"},
+  {:kino, "~> 0.19"}
+])
+```
+
+## gen_tcp
+
+The `gen_tcp` module provides functions for communicating over TCP/IP protocol sockets. ([gen_tcp](https://www.erlang.org/doc/apps/kernel/gen_tcp.html))
+
+## Echo server
+
+Docs: [Echo server](https://elixir.hexdocs.pm/task-and-gen-tcp.html#echo-server)
+
+A TCP server performs the following steps:
+
+1. Listens to a port until the port is available and it gets hold of the socket
+2. Waits for a client connection on that port and accepts it
+3. Reads the client request and writes a response back
+
+```elixir
+defmodule KV.ServerOne do
+  require Logger
+
+  def accept(port) do
+    {:ok, socket} =
+      :gen_tcp.listen(port, [:binary, packet: :line, active: false, reuseaddr: true])
+    Logger.info("Accepting connections on port #{port}")
+    loop_acceptor(socket)
+  end
+
+  defp loop_acceptor(socket) do
+    {:ok, client} = :gen_tcp.accept(socket)
+    serve(client)
+    loop_acceptor(socket)
+  end
+
+  defp serve(socket) do
+    socket
+    |> read_line()
+    |> write_line(socket)
+
+    serve(socket)
+  end
+
+  defp read_line(socket) do
+    {:ok, data} = :gen_tcp.recv(socket, 0)
+    data
+  end
+
+  defp write_line(line, socket) do
+    :gen_tcp.send(socket, line)
+  end
+end
+```
+
+```elixir
+# Start the server (commented out because it's interfering with later code)
+# KV.ServerOne.accept(4041)
+```
+
+Connect to the server with a telnet client. E.g.:
+
+```text
+❯ telnet 127.0.0.1 4041
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+hello
+hello
+foo
+foo
+this is a test
+this is a test
+^]
+telnet> q
+Connection closed.
+```
+
+Note that closing the client currently generates the error:
+
+```text
+** (MatchError) no match of right hand side value:
+
+    {:error, :closed}
+
+    #cell:45ybwvp557oaut5m:26: KV.Server.read_line/1
+    # ...
+```
+
+The error is because `:gen_tcp.recv/2` only matches `{:ok, data}`:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+defp read_line(socket) do
+  {:ok, data} = :gen_tcp.recv(socket, 0)
+  data
+end
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Handling TCP acceptor crashes
+
+This is an attempt to implment some of what in [https://elixir.hexdocs.pm/task-and-gen-tcp.html](https://elixir.hexdocs.pm/task-and-gen-tcp.html) and [https://elixir.hexdocs.pm/docs-tests-and-with.html](https://elixir.hexdocs.pm/docs-tests-and-with.html) in a Livebook.
+
+With the `ServerOne` code, the server won't be restarted if it dies - there's no supervisor process.
+
+At a high level, what's going on in the `Scratch` and `Scratch.Server` modules below:
+
+* `Scratch` calls `use Application` and implements a `start/2` function, that calls
+* `Supervisor.start_link` on a list of child processes
+* the first child process creates a `Task.Supervisor` named `Scratch.ServerSupervisor`
+* the next child process is defined by calling `Supervisor.child_spec/2`
+* it turns `Scratch.Server.accept(4040)` into a supervised task
+
+```elixir
+  Supervisor.child_spec({Task, fn -> Scratch.Server.accept(4040) end}, restart: :permanent)
+```
+
+```elixir
+defmodule Scratch do
+  use Application
+
+  @impl true
+  def start(_type, _args) do
+    children = [
+      {Task.Supervisor, name: Scratch.ServerSupervisor},
+      Supervisor.child_spec({Task, fn -> Scratch.Server.accept(4040) end}, restart: :permanent)
+    ]
+
+    Supervisor.start_link(children, strategy: :one_for_one)
+  end
+end
+```
+
+`Scratch.Server.loop_acceptor/1` allows for simultaneous connections by having one process work as an acceptor (the process that accepts requests). `Task.Supervisor` is then used to serve each request. `:gen_tcp.controlling_process(client, pid)` makes the child process the "controlling process" of the `client` socket. Without this, the acceptor sould bring down all the clients if it crashed, because sockets would be tied to the process that accepted them.
+
+`Scratch.Server.read_line` now handles error responses - it calls `exit\1` on error.
+
+```elixir
+defmodule Scratch.Server do
+  require Logger
+
+  def accept(port) do
+    {:ok, socket} =
+      :gen_tcp.listen(port, [:binary, packet: :line, active: false, reuseaddr: true])
+
+    Logger.info("Accepting connections on port #{port}")
+    loop_acceptor(socket)
+  end
+
+  defp loop_acceptor(socket) do
+    {:ok, client} = :gen_tcp.accept(socket)
+    {:ok, pid} = Task.Supervisor.start_child(Scratch.ServerSupervisor, fn -> serve(client) end)
+    :ok = :gen_tcp.controlling_process(client, pid)
+    loop_acceptor(socket)
+  end
+
+  defp serve(socket) do
+    socket
+    |> read_line()
+    |> write_line(socket)
+
+    serve(socket)
+  end
+
+  defp read_line(socket) do
+    case :gen_tcp.recv(socket, 0) do
+      {:ok, data} -> data
+      {:error, :closed} -> exit(:shutdown) 
+      {:error, reason} -> exit(reason)
+    end
+  end
+
+  defp write_line(line, socket) do
+    :gen_tcp.send(socket, line)
+  end
+end
+```
+
+```elixir
+# In an actual mix app you'd call:
+# Application.start(:scratch)
+
+# possible (?) workaround for a Livebook:
+# stop with Kino.terminate_child(supervisor)
+# docs: https://kino.hexdocs.pm/Kino.html#start_child/1
+
+{:ok, supervisor} = 
+  Kino.start_child(%{
+    id: Scratch,
+    start: {Scratch, :start, [:normal, []]},
+    type: :supervisor
+  })
+```
+
+```elixir
+# might be useful if things go wrong (?)
+Kino.terminate_child(supervisor)
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file, force: true)
+```

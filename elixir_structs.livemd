@@ -1,0 +1,80 @@
+# Elixir maps and structs
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, github: "scossar/obsidian_livebook"},
+  :kino
+])
+```
+
+## Structs are an extension built on top of maps
+
+Docs:
+
+* [Keyword lists and maps](https://elixir.hexdocs.pm/keywords-and-maps.html)
+* [Structs](https://elixir.hexdocs.pm/structs.html)
+
+<!-- livebook:{"break_markdown":true} -->
+
+### Maps
+
+Maps are the go to data structure for key-value pairs:
+
+```elixir
+map = %{:a => 1, 2 => :b}
+```
+
+```elixir
+map |> inspect |> IO.puts
+map[:a] |> IO.puts
+map[2] |> IO.puts
+```
+
+#### Pattern matching with maps
+
+A map matches as long as the keys in the pattern exist in the given map.
+
+```elixir
+%{:a => a} = map
+a |> IO.puts
+```
+
+#### Map functions
+
+Docs: [Map.html#functions](https://elixir.hexdocs.pm/Map.html#functions)
+
+```elixir
+map = %{:a => 1, :b => 2, :c => 3} |> Kino.inspect(label: "Base map")
+```
+
+## delete(map, key)
+
+```elixir
+del_example = Map.delete(map, :a) |> Kino.inspect(label: "Map with the :a entry removed")
+```
+
+## fetch(map, key)
+
+```elixir
+case Map.fetch(map, :a) do 
+  {:ok, val} -> Kino.inspect(val, label: "The value of :a is")
+  :error -> Kino.inspect(:error)
+end
+
+case Map.fetch(map, :z) do 
+  {:ok, val} -> Kino.inspect(val, label: "The value of :z is")
+  :error -> Kino.inspect(:error)
+end
+```
+
+## filter(map, fun)
+
+```elixir
+Map.filter(map, fn {_key, val} -> val != 2 end) |> Kino.inspect
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

@@ -1,0 +1,90 @@
+# Outputing multiple values from Livebook cells
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, github: "scossar/obsidian_livebook"},
+  :kino
+])
+```
+
+## The problem
+
+When a Livebook cell is evaluated, the result of the last evaluation is printed to the Livebook output cell:
+
+```elixir
+a = 1 + 1
+b = 1 + 2
+c = 1 + 3
+```
+
+For learning purposes, I often want to be able to see the values produced by multiple expressions.
+
+## Piping into `IO.puts`
+
+This seems to work:
+
+```elixir
+a = 1 + 1 |> IO.puts
+b = 1 + 2 |> IO.puts
+c = 1 + 3 |> IO.puts
+```
+
+But it falls apart if something more needs to be done with the assigned values - `IO.puts` returns `:ok` on success
+
+```elixir
+a = 1 + 1 |> IO.puts
+b = a + 1 |> IO.puts  # `b = :ok + 1
+# ** (ArithmeticError) bad argument in arithmetic expression: :ok + 1
+```
+
+A possible workaround is to assign the variables first, then pipe them to `IO.puts`
+
+```elixir
+a = 1 + 1
+a |> IO.puts
+b = a + 1
+b |> IO.puts
+```
+
+## Piping into `IO.inspect`
+
+[`IO.inspect`](https://elixir.hexdocs.pm/IO.html#inspect/2) handles maps, tuples, etc, supports labels, and *returns the original value*. So this will work:
+
+```elixir
+a = 1 + 1 |> IO.inspect
+b = a + 1 |> IO.inspect
+c = a + b |> IO.inspect
+```
+
+```elixir
+my_range = (1..23) |> IO.inspect(label: "my_range")
+```
+
+## Piping into `Kino.inspect`
+
+Import [Kino](https://kino.hexdocs.pm/0.19.1/Kino.html) into the project and use [Kino.Inspect](https://kino.hexdocs.pm/0.19.1/Kino.Inspect.html).
+
+"Kino is a library used by Livebook to render rich and interactive outputs directly from your Elixir code." That seems suitable for the task.
+
+`Kino.inspect` is a "meta-struct that implements the [`Kino.Render`](https://kino.hexdocs.pm/0.19.1/Kino.Render.html) protocol, so that the wrapped value is rendered using the inspect protocol". Which seems to indicate the `Kino.inspect` is a drop-in replacement for `IO.inspect`, but with some additional functionality.
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+Mix.install([
+  :kino
+])
+```
+
+```elixir
+my_range = (1..23) |> Kino.inspect(label: "my_range")
+a = 1 + 1 |> Kino.inspect(label: "a = 1 + 1")
+b = a + 1 |> Kino.inspect(label: "b = a + 1")
+c = a + b |> Kino.inspect(label: "c = a + b")
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

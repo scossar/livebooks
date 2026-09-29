@@ -1,0 +1,117 @@
+# Phoenix playground
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"},
+  :phoenix_playground
+])
+```
+
+## Demo
+
+See: [Announcing Phoenix Playground](https://dashbit.co/blog/announcing-phoenix-playground)
+GitHub repo: [https://github.com/phoenix-playground/phoenix_playground](https://github.com/phoenix-playground/phoenix_playground)
+
+Phoenix Playground is for creating single-file Phoenix LiveView apps.
+
+The announcement post pointed me to the [`Mix.install/2`](https://mix.hexdocs.pm/Mix.html#install/2) documentation. From the docs, it seems that dependencies can be installed by just specifying the dependency as an atom, e.g.:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+Mix.install([
+  :phoenix_playground  # get the latest version
+])
+```
+
+```elixir
+defmodule DemoLive do
+  use Phoenix.LiveView
+
+  def mount(_params, _session, socket) do
+    {:ok, assign(socket, count: 0)}
+  end
+
+  def render(assigns) do
+    ~H"""
+    <span>Count: {@count}</span>
+    <button phx-click="inc">+</button>
+    <p>Live code reloading is supported. Although the browser window will
+    need to be refreshed.</p>
+    <style type="text/css">
+      body {padding: 1em;}
+    </style>
+    """
+  end
+
+  def handle_event("inc", _params, socket) do
+    {:noreply, assign(socket, count: socket.assigns.count + 1)}
+  end
+end
+```
+
+```elixir
+PhoenixPlayground.start(live: DemoLive, port: 4001)
+```
+
+### Running ExUnit tests in a Livebook
+
+Disable `ExUnit`'s run-on-exit and call `ExUnit.run/0` explicitly.
+
+```elixir
+Logger.configure(level: :info)
+ExUnit.start(autorun: false)  # disable autorun
+
+defmodule DemoLiveTest do
+  use ExUnit.Case
+  use PhoenixPlayground.Test, live: DemoLive
+
+  test "it works" do
+    {:ok, _view, _html} = live(build_conn(), "/")
+  end
+
+  test "the count increments" do
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ "Count: 0"
+    assert render_click(view, :inc, %{}) =~ "Count: 1"
+  end
+end
+```
+
+NOTE: these tests can't be run while the server is running. Stop the server using the next section's cells if it's running.
+
+```elixir
+ExUnit.run([DemoLiveTest])
+```
+
+### Stopping Phoenix Playground
+
+There's no `PhoenixPlayground.stop/0` function. My first approach at stopping the server was with:
+
+```bash
+lsof -i <port>
+
+# e.g.
+lsof -i 4001
+
+# then:
+kill -9 <PID>
+```
+
+As an alternative, first shut down the playground's supervision tree, including its web server. Then remove the saved child specification so that `PhoenixPlayground.start(...)` can be run again.
+
+```elixir
+# Shut down the playground's supervision tree
+:ok = Supervisor.terminate_child(PhoenixPlayground.Application, PhoenixPlayground)
+```
+
+```elixir
+# Remove the saved child specification
+:ok = Supervisor.delete_child(PhoenixPlayground.Application, PhoenixPlayground)
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

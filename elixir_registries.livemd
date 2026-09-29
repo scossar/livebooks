@@ -1,0 +1,43 @@
+# Using Elixir Registries to name processes
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, path: "/home/scossar/projects/elixir/obsidian_livebook"}
+])
+```
+
+## About Registries
+
+`Registry` is the Elixir process registry module. It makes it possible to use any Elixir value to name a process, (as opposed to only being able to use atoms to name processes).
+
+Docs:
+
+* [Local, decentralized, scalable registry](https://elixir.hexdocs.pm/supervisor-and-application.html#local-decentralized-and-scalable-registry)
+* [Elixir docs: Registry](https://elixir.hexdocs.pm/Registry.html)
+
+## Register and access named processes
+
+```elixir
+Registry.start_link(name: KV, keys: :unique)
+```
+
+Instead of passing an atom to the `name` option, pass a tuple with the shape `{:via, registry_module, {registry_name, process_name}}`:
+
+```elixir
+counter = {:via, Registry, {KV, "counter"}}
+{:ok, _} = Agent.start_link(fn -> 0 end, name: counter)
+```
+
+```elixir
+Agent.update(counter, & &1 + 1)
+```
+
+```elixir
+Agent.get(counter, & &1)
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```

@@ -1,0 +1,19 @@
+# Obsidian Livebook template
+
+```elixir
+Mix.install([
+  {:obsidian_livebook, github: "scossar/obsidian_livebook"}
+])
+```
+
+## Section
+
+```elixir
+1 + 1
+```
+
+## Publish to Obsidian
+
+```elixir
+ObsidianLivebook.publish("/home/scossar/obsidian_vault", __ENV__.file)
+```
